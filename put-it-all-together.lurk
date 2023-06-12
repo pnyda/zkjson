@@ -1,0 +1,466 @@
+!(def json-parser
+      (letrec ((map (lambda (f xs)  ;; (a -> b) -> [a] -> [b]
+                            (if xs
+                                (cons (f (car xs))
+                                      (map f (cdr xs)))
+                                nil)))
+               ;; (a -> a -> ... -> a -> b) -> [a] -> b
+               (apply (lambda (f xs)
+                              (if xs
+                                  (apply (f (car xs))
+                                         (cdr xs))
+                                  f)))
+               ;; lurk-rs seems to not support mutual recursion via letrec yet.
+               ;; so I need this fixed point combinator!
+               ;; https://okmij.org/ftp/Computation/fixed-point-combinators.html
+               ;; (Y* fs) = (map (lambda (f) (apply f (Y* fs))) fs)
+               (Y* (lambda (fs)                                                            
+                           ((lambda (x) (x x))
+                            (lambda (x)
+                                    (map (lambda (f)
+                                                 (lambda (thunk)  ; This thunk is not needed in a lazily evaluated language. Lurk is eager
+                                                         ((apply f (x x)) thunk)))
+                                         fs)))))
+               ;; bool -> bool
+               (not (lambda (x)
+                            (if x nil t)))
+               ;; a -> a -> bool
+               (neq (lambda (x y)
+                            (not (eq x y))))
+               ;; bool -> bool -> bool
+               (or (lambda (x y)
+                           (if x x y)))
+               ;; bool -> bool -> bool
+               (and (lambda (x y)
+                            (if x y x)))
+               ;; int -> string -> (string . string)
+               (split-at (lambda (index text)
+                                 (if (eq index 0)
+                                     (cons "" text)
+                                     (let ((deep (split-at (- index 1) (cdr text)))
+                                           (before-index (car deep))
+                                           (after-index (cdr deep)))
+                                          (cons (strcons (car text) before-index) after-index)))))
+               ;; (a -> bool) -> [a] -> ([a] . [a])
+               (split-right (lambda (p xs)
+                                    (if xs
+                                        (let ((inner (split-right p (cdr xs)))
+                                              (before (car inner))
+                                              (after (cdr inner)))
+                                             (if before
+                                                 (cons (cons (car xs) before) after)                              
+                                                 (if (p (car xs))
+                                                     (cons (cons (car xs) nil) after)
+                                                     (cons nil (cons (car xs) after)))))
+                                        (cons nil nil))))
+               ;; [a] -> [a] -> [a]
+               (concat (lambda (xs ys)
+                               (if (or (eq xs "") (eq xs nil)) ys
+                                   (cons (car xs) (concat (cdr xs) ys)))))
+               ;; [a] -> int
+               (length (lambda (xs)
+                               (if (eq xs nil) 0
+                                   (+ 1 (length (cdr xs))))))
+               ;; [char] -> string
+               (chars2str (lambda (xs)
+                                  (if xs
+                                      (strcons (car xs) (chars2str (cdr xs)))
+                                      "")))
+               ;; char -> int
+               (char2int (lambda (digit)
+                                 (if (eq #\0 digit) 0
+                                     (if (eq #\1 digit) 1
+                                         (if (eq #\2 digit) 2
+                                             (if (eq #\3 digit) 3
+                                                 (if (eq #\4 digit) 4
+                                                     (if (eq #\5 digit) 5
+                                                         (if (eq #\6 digit) 6
+                                                             (if (eq #\7 digit) 7
+                                                                 (if (eq #\8 digit) 8
+                                                                     (if (eq #\9 digit) 9
+                                                                         (if (eq #\a digit) 10
+                                                                             (if (eq #\b digit) 11
+                                                                                 (if (eq #\c digit) 12
+                                                                                     (if (eq #\d digit) 13
+                                                                                         (if (eq #\e digit) 14
+                                                                                             (if (eq #\f digit) 15
+                                                                                                 (if (eq #\A digit) 10
+                                                                                                     (if (eq #\B digit) 11
+                                                                                                         (if (eq #\C digit) 12
+                                                                                                             (if (eq #\D digit) 13
+                                                                                                                 (if (eq #\E digit) 14
+                                                                                                                     (if (eq #\F digit) 15
+                                                                                                                         nil))))))))))))))))))))))))
+               ;; int -> int -> string -> int
+               (str2int/open (lambda (acc base xs)
+                                     (if (eq xs "") acc
+                                         (str2int/open (+ (* base acc)
+                                                          (char2int (car xs)))
+                                                       base
+                                                       (cdr xs)))))
+               ;; int -> string -> int
+               (str2int (str2int/open 0))
+               ;; (string -> (a . string)) -> (string -> (b . string)) -> string -> ((a . b) . string)
+               (comb/and (lambda (parser1 parser2 text) 
+                                 (let ((parsed1 (parser1 text))
+                                       (result1 (car parsed1))
+                                       (remaining1 (cdr parsed1)))
+                                      (if parsed1
+                                          (let ((parsed2 (parser2 remaining1))
+                                                (result2 (car parsed2))
+                                                (remaining2 (cdr parsed2)))
+                                               (and parsed2                                                                                                 
+                                                    (cons (cons result1 result2) remaining2)))
+                                          nil))))
+               ;; (string -> (a . string)) -> (string -> (a . string)) -> string -> (a . string)
+               (comb/or (lambda (parser1 parser2 text)
+                                (let ((cond (parser1 text)))
+                                     (if cond cond (parser2 text)))))
+               ;; (string -> (a . string)) -> string -> (a . string)
+               (comb/option (lambda (parser text)
+                                    (let ((cond (parser text)))
+                                         (if cond cond (cons nil text)))))
+               ;; (string -> (a . string)) -> string -> ([a] . string)
+               (comb/many0 (lambda (parser text)
+                                   (let ((parsed1 (parser text))
+                                         (result1 (car parsed1))
+                                         (remaining1 (cdr parsed1)))
+                                        (if parsed1
+                                            (let ((parsed2 (comb/many0 parser remaining1))
+                                                  (result2 (car parsed2))
+                                                  (remaining2 (cdr parsed2)))
+                                                 (cons (cons result1 result2) remaining2))
+                                            (cons nil text)))))
+               ;; (string -> (a . string)) -> string -> ([a] . string)
+               (comb/many1 (lambda (parser)
+                                   (comb/and parser (comb/many0 parser))))
+               ;; (a -> b) -> (string -> (a . string)) -> string -> (b . string)
+               (comb/map (lambda (f parser text)
+                                 (let ((parsed (parser text))
+                                       (result (car parsed))
+                                       (remaining (cdr parsed)))
+                                      (if parsed
+                                          (cons (f result) remaining)
+                                          nil))))
+               ;; (string -> (a . string)) -> (string -> (b . string)) -> string -> (a . string)
+               (comb/car (lambda (parser1 parser2)
+                                 (comb/map (lambda (pair) (car pair))
+                                           (comb/and parser1 parser2))))
+               ;; (string -> (a . string)) -> (string -> (b . string)) -> string -> (b . string)
+               (comb/cdr (lambda (parser1 parser2)
+                                 (comb/map (lambda (pair) (cdr pair))
+                                           (comb/and parser1 parser2))))
+               ;; int -> (string -> (a . string)) -> string -> ([a] . string)
+               (comb/take (lambda (qty parser text)
+                                  (if (eq 0 qty)
+                                      (cons nil text)
+                                      (let ((parsed1 (parser text))
+                                            (result1 (car parsed1))
+                                            (remaining1 (cdr parsed1)))
+                                           (if parsed1
+                                               (let ((parsed2 (comb/take (- qty 1) parser remaining1))
+                                                     (result2 (car parsed2))
+                                                     (remaining2 (cdr parsed2)))
+                                                    (if parsed2
+                                                        (cons (cons result1 result2) remaining2)
+                                                        nil))
+                                               nil)))))
+               ;; char -> (string -> (a . string)) -> string -> ([a] . string)
+               (comb/join (lambda (separator parser)
+                                  (comb/and parser
+                                            (comb/many0 (comb/cdr separator parser)))))
+               
+               ;; json/* takes a string and returns a pair where
+               ;; car: parsed result
+               ;; cdr: remaining string
+               ;; when the parse fails the result becomes nil
+               
+               ;; char -> string -> (char . string)
+               (json/char (lambda (char json)
+                                  (if (eq (car json) char)
+                                      ; I know this looks ridiculous
+                                      ; This is converting string into (char . string)
+                                      (cons (car json) (cdr json))
+                                      nil)))
+               ;; string -> (string . string)
+               (json/spaces (comb/many0 (comb/or (json/char (char 10))  ; line-feed
+                                                 (comb/or (json/char (char 13))  ; carriage return
+                                                          (comb/or (json/char (char 9))  ; horizontal tab
+                                                                   (json/char (char 32)))))))  ; space
+               ;; string -> (:null . string)
+               (json/null (lambda (json)
+                                  (let ((split (split-at 4 json))
+                                        (first-letters (car split))
+                                        (rest (cdr split)))
+                                       (if (eq first-letters "null")
+                                           (cons nil rest)
+                                           nil))))
+               ;; string -> (:true . string)
+               (json/true (lambda (json)
+                                  (let ((split (split-at 4 json))
+                                        (first-letters (car split))
+                                        (rest (cdr split)))
+                                       (if (eq first-letters "true")
+                                           (cons t rest)
+                                           nil))))
+               ;; string -> (:false . string)
+               (json/false (lambda (json)
+                                   (let ((split (split-at 5 json))
+                                         (first-letters (car split))
+                                         (rest (cdr split)))
+                                        (if (eq first-letters "false")
+                                            (cons nil rest)
+                                            nil))))
+               ;; string -> (char . string)
+               (json/non0 (comb/or (json/char #\1)
+                                   (comb/or (json/char #\2)
+                                            (comb/or (json/char #\3)
+                                                     (comb/or (json/char #\4)
+                                                              (comb/or (json/char #\5)
+                                                                       (comb/or (json/char #\6)
+                                                                                (comb/or (json/char #\7)
+                                                                                         (comb/or (json/char #\8)
+                                                                                                  (json/char #\9))))))))))
+               ;; string -> (char . string)
+               (json/digit (comb/or (json/char #\0) json/non0))
+               ;; string -> (int . string)
+               (json/sign (comb/map (lambda (x) (if (eq #\- x) -1 1))
+                                    (comb/option (json/char #\-))))
+               ;; string -> ([char] . string)
+               (json/integer (comb/or (comb/map (lambda (x) nil)
+                                                (json/char #\0))
+                                      (comb/and json/non0
+                                                (comb/many0 json/digit))))
+               ;; string -> ([char] . string)
+               (json/fraction (comb/option (comb/cdr (json/char #\.)
+                                                     (comb/map (lambda (chars) (car (split-right (neq #\0) chars)))
+                                                               (comb/many1 json/digit)))))
+               ;; string -> (int . string)
+               (json/exponent (comb/map (lambda (num) (or num 0))
+                                        (comb/option (comb/map (lambda (xs) (* (car xs) (cdr xs)))
+                                                               (comb/and (comb/cdr (comb/or (json/char #\E)
+                                                                                            (json/char #\e))
+                                                                                   (comb/map (lambda (x) (if (eq x #\-) -1 1))
+                                                                                             (comb/option (comb/or (json/char #\-)
+                                                                                                                   (json/char #\+)))))
+                                                                         (comb/map (lambda (xs) (str2int 10 (chars2str xs)))
+                                                                                   (comb/many1 json/digit)))))))
+               ;; string -> ((int . int) . string)
+               (json/number (comb/map (lambda (xs)
+                                              (let ((sign (car xs))
+                                                    (integer (car (cdr xs)))
+                                                    (fraction (car (cdr (cdr xs))))
+                                                    (exponent (cdr (cdr (cdr xs))))
+                                                    (split0 (split-right (neq #\0)
+                                                                         (concat integer fraction)))
+                                                    (numerator (* sign (str2int 10 (chars2str (car split0)))))
+                                                    (denominator (- (- (length fraction) exponent) (length (cdr split0)))))
+                                                   (cons numerator denominator)))
+                                      ; This parser returns a pair of numerator and denominator.
+                                      ; represented number = numerator / 10^denominator
+                                      (comb/and json/sign (comb/and json/integer (comb/and json/fraction json/exponent)))))
+               ;; string -> (char . string)
+               (json/normal-char (lambda (json)
+                                         (if (eq json "") nil
+                                             (if (eq #\" (car json)) nil
+                                                 (if (eq #\\ (car json)) nil
+                                                     (cons (car json) (cdr json)))))))
+               ;; string -> (char . string)
+               (json/hex (comb/or json/digit
+                                  (comb/or (json/char #\a)
+                                           (comb/or (json/char #\b)
+                                                    (comb/or (json/char #\c)                    
+                                                             (comb/or (json/char #\d)
+                                                                      (comb/or (json/char #\e)
+                                                                               (comb/or (json/char #\f)
+                                                                                        (comb/or (json/char #\A)
+                                                                                                 (comb/or (json/char #\B)
+                                                                                                          (comb/or (json/char #\C)
+                                                                                                                   (comb/or (json/char #\D)
+                                                                                                                            (comb/or (json/char #\E)
+                                                                                                                                     (json/char #\F))))))))))))))
+               ;; string -> (char . string)
+               (json/special-char (comb/cdr (json/char #\\)
+                                            (comb/or (comb/map (lambda (x) (char 34))
+                                                               (json/char #\"))
+                                                     (comb/or (comb/map (lambda (x) (char 92))
+                                                                        (json/char #\\))
+                                                              (comb/or (comb/map (lambda (x) (char 47))
+                                                                                 (json/char #\/))
+                                                                       (comb/or (comb/map (lambda (x) (char 8))
+                                                                                          (json/char #\b))
+                                                                                (comb/or (comb/map (lambda (x) (char 12))
+                                                                                                   (json/char #\f))
+                                                                                         (comb/or (comb/map (lambda (x) (char 10))
+                                                                                                            (json/char #\n))
+                                                                                                  (comb/or (comb/map (lambda (x) (char 13))
+                                                                                                                     (json/char #\r))
+                                                                                                           (comb/or (comb/map (lambda (x) (char 9))
+                                                                                                                              (json/char #\t))
+                                                                                                                    (comb/cdr (json/char #\u)
+                                                                                                                              (comb/map (lambda (xs) (char (str2int 16 (chars2str xs))))
+                                                                                                                                        (comb/take 4 json/hex)))))))))))))
+               ;; string -> (string . string)
+               (json/string (comb/car (comb/map (lambda (x) (chars2str (cdr x)))
+                                                (comb/and (json/char #\")     
+                                                          (comb/many0 (comb/or json/normal-char json/special-char))))
+                                      (json/char #\")))
+               ;; string -> ([value] . string)
+               (json/array/open (lambda (array object value)
+                                        (comb/car (comb/cdr (json/char (char 91))  ; left square bracket
+                                                            (comb/or (comb/join (json/char #\,)
+                                                                                value)
+                                                                     (comb/map (lambda (xs) nil)
+                                                                               json/spaces)))
+                                                  (json/char (char 93)))))  ; right square bracket
+               ;; string -> ((string . value) . string)
+               (json/object/open (lambda (array object value)
+                                         (let ((member (comb/cdr json/spaces
+                                                                 (comb/and json/string
+                                                                           (comb/cdr json/spaces
+                                                                                     (comb/cdr (json/char #\:) value))))))
+                                              (comb/car (comb/cdr (json/char (char 123))  ; left curly bracket
+                                                                  (comb/or (comb/join (json/char #\,) member)
+                                                                           (comb/map (lambda (xs) nil)
+                                                                                     json/spaces)))
+                                                        (json/char (char 125))))))  ; right curly bracket
+               ;; string -> value
+               (json/value/open (lambda (array object value)
+                                        (comb/car (comb/cdr json/spaces
+                                                            (comb/or (comb/map (lambda (x) (cons :object x)) object)
+                                                                     (comb/or (comb/map (lambda (x) (cons :array x)) array)
+                                                                              (comb/or (comb/map (lambda (x) (cons :string x)) json/string)
+                                                                                       (comb/or (comb/map (lambda (x) (cons :number x)) json/number)
+                                                                                                (comb/or (comb/map (lambda (x) (cons :null x)) json/null)
+                                                                                                         (comb/or (comb/map (lambda (x) (cons :bool x)) json/true)
+                                                                                                                  (comb/map (lambda (x) (cons :bool x)) json/false))))))))
+                                                  json/spaces)))
+               (mutually-recursive (Y* (cons json/array/open (cons json/object/open (cons json/value/open nil)))))
+               (json/array (car mutually-recursive))
+               (json/object (car (cdr mutually-recursive)))
+               (json/value (car (cdr (cdr mutually-recursive)))))
+              json/value))
+
+!(def example-predicate
+      (letrec ((and (lambda (x y)
+                            (if x y x)))
+               (any (lambda (p xs)
+                            (if xs
+                                (if (p (car xs))
+                                    t
+                                    (any p (cdr xs)))
+                                nil)))
+               (length (lambda (xs)
+                               (if (eq xs nil) 0
+                                   (+ 1 (length (cdr xs))))))
+               (verify-string (lambda (test pair)
+                                      (if (eq :string (car pair))
+                                          (eq test (cdr pair))
+                                          nil)))
+               (verify-horse (lambda (parsed)
+                                     (if (eq :object (car parsed))
+                                         (any (lambda (kv)
+                                                      (if (eq "color" (car kv))
+                                                          (verify-string "white" (cdr kv))
+                                                          nil))
+                                              (cdr parsed))
+                                         nil)))
+               (verify-horseman (lambda (parsed)
+                                        (if (eq :object (car parsed))
+                                            (and (any (lambda (kv)
+                                                              (if (eq "name" (car kv))
+                                                                  (verify-string "jesus" (cdr kv))
+                                                                  nil))
+                                                      (cdr parsed))
+                                                 (any (lambda (kv)
+                                                              (if (eq "horse" (car kv))
+                                                                  (verify-horse (cdr kv))
+                                                                  nil))
+                                                      (cdr parsed)))
+                                            nil)))
+               (verify-horsemen (lambda (parsed)
+                                        (if (eq :array (car parsed))
+                                            (and (eq 4 (length (cdr parsed)))
+                                                 (any verify-horseman (cdr parsed)))
+                                            nil)))
+               (verify-all (lambda (parsed)
+                                   (if (eq :object (car parsed))
+                                       (any (lambda (kv)
+                                                    (if (eq "horsemen" (car kv))
+                                                        (verify-horsemen (cdr kv))
+                                                        nil))
+                                            (cdr parsed))
+                                       nil))))
+              verify-all))
+
+!(def zero-knowledge
+      (lambda (parser p hash)
+              (let ((parsed (parser (open hash)))
+                    (result (car parsed))
+                    (remaining (cdr parsed)))
+                   (if (eq remaining "")
+                       (p result)
+                       nil))))
+
+!(def put-it-all-together
+      (zero-knowledge json-parser example-predicate))
+
+!(commit put-it-all-together)
+; (comm 0x10234cc03a94c36b1d5b5e7f726cf739411c886f476a0bd48995c469de3db1a5)
+
+(hide 42069 "
+{
+  \"horsemen\": [
+    {
+      \"id\": 24514,
+      \"name\": \"jesus\",
+      \"horse\": {
+        \"color\": \"white\"
+      }
+    },
+    {
+      \"id\": 32622,
+      \"name\": \"war\",
+      \"horse\": {
+        \"color\": \"red\"
+      }
+    },
+    {
+      \"id\": 25518,
+      \"name\": \"famine\",
+      \"horse\": {
+        \"color\": \"black\"
+      }
+    },
+    {
+      \"id\": 20724,
+      \"name\": \"death\",
+      \"horse\": {
+        \"color\": \"pale\"
+      }
+    }
+  ]
+}
+")
+; (comm 0x37e2045b6542ae1bca50d51d1215692e6e129792079ee9b7d8775b12a213e991)
+
+!(call 0x10234cc03a94c36b1d5b5e7f726cf739411c886f476a0bd48995c469de3db1a5
+       0x37e2045b6542ae1bca50d51d1215692e6e129792079ee9b7d8775b12a213e991)
+!(prove)
+; "bafkr4icjynn2vlbbqci5x7nbsovzrdik3tw5nn6wd74b7exs64psy5bgau"
+
+!(proof-claim "bafkr4icjynn2vlbbqci5x7nbsovzrdik3tw5nn6wd74b7exs64psy5bgau")
+; Opening(
+;     Opening {
+;         input: "0x37e2045b6542ae1bca50d51d1215692e6e129792079ee9b7d8775b12a213e991",
+;         output: "T",
+;         status: Terminal,
+;         commitment: Commitment {
+;             comm: 0x10234cc03a94c36b1d5b5e7f726cf739411c886f476a0bd48995c469de3db1a5,
+;         },
+;         new_commitment: None,
+;     },
+; )
+
+!(verify "bafkr4icjynn2vlbbqci5x7nbsovzrdik3tw5nn6wd74b7exs64psy5bgau")
+; T

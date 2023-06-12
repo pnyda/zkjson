@@ -1,0 +1,7 @@
+(lambda (parser p hash)
+        (let ((parsed (parser (open hash)))
+              (result (car parsed))
+              (remaining (cdr parsed)))
+             (if (eq remaining "")
+                 (p result)
+                 nil)))
