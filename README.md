@@ -5,7 +5,7 @@ JSON parser written in Lurk
 Let's say there's Alice and Bob. Both know a poseidon hash $H$, a path $P$, and a value $V$. Only Alice knows the preimage of $H$ called $J$. zkJSON lets Alice prove to Bob that
 
 - $J$ is a valid JSON.
-- The value in $J$ under the path $P$ equals $V$.
+- $J$ contains $V$ under the path $P$.
 
 without disclosing $J$.
 
