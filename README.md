@@ -2,12 +2,10 @@
 JSON parser written in Lurk
 
 # Description
-Let's say there's Alice and Bob. Both know a poseidon hash $H$, a path $P$, and a value $V$. Only Alice knows the preimage of $H$ called $J$. zkJSON lets Alice prove to Bob that
+Let's say there's Alice and Bob. Both know a poseidon hash $H$, a path $P$, and a value $V$. Only Alice knows the preimage of $H$ called $J$. zkJSON lets Alice prove to Bob without disclosing $J$ that
 
 - $J$ is a valid JSON.
 - $J$ contains $V$ under the path $P$.
-
-without disclosing $J$.
 
 # Usage
 Copy and paste [put-it-all-together.lurk](put-it-all-together.lurk) into [clutch](https://github.com/lurk-lab/lurk-rs/tree/master/clutch). Currently this repository needs [a patch for Lurk](https://github.com/lurk-lab/lurk-rs/pull/432) to work.
