@@ -1,4 +1,4 @@
-;; This predicate verifies that there's a horsemen called jesus who rides a white horse.
+;; This predicate verifies that there's a horseman called jesus who rides a white horse.
 ;; In jq `.horsemen | .[] | select(.name == "jesus") | .horse.color` must be "white".
 
 (letrec ((and (lambda (x y)

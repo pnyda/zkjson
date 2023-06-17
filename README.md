@@ -24,4 +24,4 @@ I need a better testing framework for Lurk.
 CLI command to generate a proof / verify a proof would be nice.
 
 ## Secure cryptography
-According to an audit, the commitment scheme used in Nova, a dependency of Lurk, is not completely hiding. I'm not an cryptography expert but I guess we can't use this repository in production until [this issue](https://github.com/microsoft/Nova/issues/174) gets resolved.
+According to an audit, the commitment scheme used in Nova, a dependency of Lurk, is not completely hiding. I'm no cryptography expert but I guess we can't use this repository in production until [this issue](https://github.com/microsoft/Nova/issues/174) gets resolved.
