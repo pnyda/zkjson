@@ -187,7 +187,7 @@
                                                  (comb/or (json/char (char 13))  ; carriage return
                                                           (comb/or (json/char (char 9))  ; horizontal tab
                                                                    (json/char (char 32)))))))  ; space
-               ;; string -> (:null . string)
+               ;; string -> (nil . string)
                (json/null (lambda (json)
                                   (let ((split (split-at 4 json))
                                         (first-letters (car split))
@@ -195,7 +195,7 @@
                                        (if (eq first-letters "null")
                                            (cons nil rest)
                                            nil))))
-               ;; string -> (:true . string)
+               ;; string -> (t . string)
                (json/true (lambda (json)
                                   (let ((split (split-at 4 json))
                                         (first-letters (car split))
@@ -203,7 +203,7 @@
                                        (if (eq first-letters "true")
                                            (cons t rest)
                                            nil))))
-               ;; string -> (:false . string)
+               ;; string -> (nil . string)
                (json/false (lambda (json)
                                    (let ((split (split-at 5 json))
                                          (first-letters (car split))
