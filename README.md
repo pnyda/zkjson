@@ -8,7 +8,7 @@ Let's say there's Alice and Bob. Both know a poseidon hash $H$, a path $P$, and 
 - $J$ contains $V$ under the path $P$.
 
 # Usage
-Copy and paste [put-it-all-together.lurk](put-it-all-together.lurk) into [clutch](https://github.com/lurk-lab/lurk-rs/tree/master/clutch). Currently this repository needs [a patch for Lurk](https://github.com/lurk-lab/lurk-rs/pull/432) to work.
+Copy and paste [put-it-all-together.lurk](put-it-all-together.lurk) into [clutch](https://github.com/lurk-lab/lurk-rs/tree/master/clutch).
 
 # TODO
 ## Make it faster
