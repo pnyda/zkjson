@@ -172,7 +172,7 @@
          ;; json/* takes a string and returns a pair where
          ;; car: parsed result
          ;; cdr: remaining string
-         ;; when the parse fails the result becomes nil
+         ;; when the parse fails it returns a nil instead of a pair
          
          ;; char -> string -> (char . string)
          (json/char (lambda (char json)
